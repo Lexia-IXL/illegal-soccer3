@@ -5,6 +5,7 @@ const { WebSocketServer } = require("ws");
 
 const app = express();
 const server = http.createServer(app);
+
 const wss = new WebSocketServer({
   server,
   path: "/ws"
@@ -12,717 +13,1246 @@ const wss = new WebSocketServer({
 
 const PORT = process.env.PORT || 10000;
 
-const WORLD_WIDTH = 1800;
-const WORLD_HEIGHT = 1000;
-
-const GOAL_Y = 330;
-const GOAL_HEIGHT = 340;
+const FIELD_WIDTH = 120;
+const FIELD_LENGTH = 200;
 
 const MAX_PLAYERS = 8;
-const MIN_HUMANS = 2;
+const MIN_PLAYERS_FOR_BOTS = 2;
 
 const TICK_RATE = 30;
-const TICK = 1000 / TICK_RATE;
+const DT = 1 / TICK_RATE;
 
 const players = new Map();
 
-let nextId = 1;
+let nextPlayerId = 1;
 
-let score = [0, 0];
-let round = 1;
-let roundClock = 180;
+let score = {
+  blue: 0,
+  red: 0
+};
 
-let lastBotFill = Date.now();
+let matchTime = 180;
 
-const POWER_TYPES = [
+let lastBotCheck = 0;
+
+const POWERUPS = [
   "speed",
   "superkick",
-  "giantball",
-  "shield"
+  "shield",
+  "giantball"
 ];
 
 let powerups = [];
 
 let ball = {
-  x: WORLD_WIDTH / 2,
-  y: WORLD_HEIGHT / 2,
+  x: 0,
+  y: 1.2,
+  z: 0,
+
   vx: 0,
   vy: 0,
+  vz: 0,
+
   owner: null,
-  lastTouch: null
+
+  radius: 1.1
 };
 
-app.use(express.static(path.join(__dirname, "public")));
+
+/* ------------------------------------------------ */
+/* WEB SERVER */
+/* ------------------------------------------------ */
+
+app.use(
+  express.static(
+    path.join(__dirname, "public")
+  )
+);
 
 app.get("/health", (req, res) => {
   res.json({
-    ok: true,
-    players: humans().length,
-    bots: bots().length
+    online: true,
+    humans: [...players.values()]
+      .filter(p => !p.bot).length,
+
+    bots: [...players.values()]
+      .filter(p => p.bot).length
   });
 });
 
-function humans() {
-  return [...players.values()].filter(player => !player.bot);
-}
 
-function bots() {
-  return [...players.values()].filter(player => player.bot);
-}
+/* ------------------------------------------------ */
+/* HELPERS */
+/* ------------------------------------------------ */
 
 function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
+  return Math.max(
+    min,
+    Math.min(max, value)
+  );
 }
 
-function distance(a, b) {
-  return Math.hypot(a.x - b.x, a.y - b.y);
+
+function distance3D(a, b) {
+  return Math.sqrt(
+    Math.pow(a.x - b.x, 2) +
+    Math.pow(a.y - b.y, 2) +
+    Math.pow(a.z - b.z, 2)
+  );
 }
 
-function send(ws, message) {
-  if (ws && ws.readyState === 1) {
-    ws.send(JSON.stringify(message));
+
+function humans() {
+  return [...players.values()]
+    .filter(player => !player.bot);
+}
+
+
+function bots() {
+  return [...players.values()]
+    .filter(player => player.bot);
+}
+
+
+function send(ws, data) {
+  if (
+    ws &&
+    ws.readyState === 1
+  ) {
+    ws.send(
+      JSON.stringify(data)
+    );
   }
 }
 
-function broadcast(message) {
-  const data = JSON.stringify(message);
 
-  for (const player of players.values()) {
-    if (!player.bot && player.ws && player.ws.readyState === 1) {
-      player.ws.send(data);
+function broadcast(data) {
+  const message =
+    JSON.stringify(data);
+
+  for (
+    const player of
+    players.values()
+  ) {
+    if (
+      !player.bot &&
+      player.ws &&
+      player.ws.readyState === 1
+    ) {
+      player.ws.send(message);
     }
   }
 }
 
+
+/* ------------------------------------------------ */
+/* PLAYER CREATION */
+/* ------------------------------------------------ */
+
 function createPlayer(ws, bot = false) {
-  const id = String(nextId++);
 
-  const blueCount = [...players.values()]
-    .filter(player => player.team === 0).length;
+  const id =
+    String(nextPlayerId++);
 
-  const redCount = [...players.values()]
-    .filter(player => player.team === 1).length;
+  const blue =
+    [...players.values()]
+      .filter(p => p.team === "blue")
+      .length;
 
-  const team = blueCount <= redCount ? 0 : 1;
+  const red =
+    [...players.values()]
+      .filter(p => p.team === "red")
+      .length;
+
+  const team =
+    blue <= red
+      ? "blue"
+      : "red";
+
+
+  const startX =
+    team === "blue"
+      ? -35
+      : 35;
+
 
   const player = {
+
     id,
+
     ws,
+
     bot,
 
-    name: bot ? `Bot ${id}` : `Player ${id}`,
+    name:
+      bot
+        ? `Bot ${id}`
+        : `Player ${id}`,
 
     team,
 
-    x: team === 0 ? 360 : WORLD_WIDTH - 360,
-    y: WORLD_HEIGHT / 2,
+    x: startX,
+
+    y: 0,
+
+    z:
+      (Math.random() - 0.5) *
+      30,
 
     vx: 0,
+
     vy: 0,
 
-    facing: team === 0 ? 1 : -1,
+    vz: 0,
 
-    input: {},
+    rotationY:
+      team === "blue"
+        ? 0
+        : Math.PI,
 
-    cooldown: 0,
+    input: {
+      forward: false,
+      backward: false,
+      left: false,
+      right: false,
+      sprint: false,
+      dribble: false
+    },
+
+    power: null,
+
+    powerUntil: 0,
+
+    actionCooldown: 0,
 
     tackleUntil: 0,
 
-    power: null,
-    powerUntil: 0
+    shieldUntil: 0
   };
 
-  players.set(id, player);
+
+  players.set(
+    id,
+    player
+  );
 
   return player;
 }
 
-function spawnPowerup() {
-  const type =
-    POWER_TYPES[
-      Math.floor(Math.random() * POWER_TYPES.length)
-    ];
 
-  powerups.push({
-    id: Math.random().toString(36).slice(2),
-    type,
+/* ------------------------------------------------ */
+/* RESET MATCH */
+/* ------------------------------------------------ */
 
-    x: 250 + Math.random() * (WORLD_WIDTH - 500),
-    y: 170 + Math.random() * (WORLD_HEIGHT - 340)
-  });
-}
+function resetPositions() {
 
-function resetBall(teamScored = null) {
-  ball = {
-    x: WORLD_WIDTH / 2,
-    y: WORLD_HEIGHT / 2,
+  for (
+    const player of
+    players.values()
+  ) {
 
-    vx:
-      teamScored === null
-        ? 0
-        : teamScored === 0
-          ? 180
-          : -180,
-
-    vy: 0,
-
-    owner: null,
-    lastTouch: null
-  };
-
-  for (const player of players.values()) {
     player.x =
-      player.team === 0
-        ? 360
-        : WORLD_WIDTH - 360;
+      player.team === "blue"
+        ? -35
+        : 35;
 
-    player.y =
-      WORLD_HEIGHT / 2 +
-      (Math.random() - 0.5) * 250;
+    player.z =
+      (Math.random() - 0.5) *
+      35;
 
-    player.cooldown = 0;
+    player.y = 0;
+
+    player.vx = 0;
+    player.vy = 0;
+    player.vz = 0;
+
+    player.power = null;
+
+    player.powerUntil = 0;
   }
+
+
+  ball.x = 0;
+  ball.y = 1.2;
+  ball.z = 0;
+
+  ball.vx = 0;
+  ball.vy = 0;
+  ball.vz = 0;
+
+  ball.owner = null;
 }
 
-function useAction(player, action) {
-  const now = Date.now();
 
-  if (player.cooldown > now) {
+/* ------------------------------------------------ */
+/* POWERUPS */
+/* ------------------------------------------------ */
+
+function spawnPowerup() {
+
+  if (powerups.length >= 4) {
     return;
   }
 
+
+  const type =
+    POWERUPS[
+      Math.floor(
+        Math.random() *
+        POWERUPS.length
+      )
+    ];
+
+
+  powerups.push({
+
+    id:
+      Math.random()
+        .toString(36)
+        .slice(2),
+
+    type,
+
+    x:
+      (Math.random() - 0.5) *
+      80,
+
+    y: 1.5,
+
+    z:
+      (Math.random() - 0.5) *
+      110
+
+  });
+}
+
+
+/* ------------------------------------------------ */
+/* ACTIONS */
+/* ------------------------------------------------ */
+
+function action(player, type) {
+
+  const now =
+    Date.now();
+
+
   if (
-    action === "kick" ||
-    action === "pass" ||
-    action === "flick" ||
-    action === "lob"
+    player.actionCooldown >
+    now
   ) {
+    return;
+  }
+
+
+  /* KICK */
+
+  if (type === "kick") {
+
     if (
-      distance(player, ball) < 105 ||
-      ball.owner === player.id
+      ball.owner === player.id ||
+      distance3D(player, ball) < 5
     ) {
+
       ball.owner = null;
-      ball.lastTouch = player.id;
 
-      const angle = Math.atan2(
-        ball.y - player.y,
-        ball.x - player.x
-      );
+      const direction =
+        player.team === "blue"
+          ? 1
+          : -1;
 
-      let power =
-        action === "kick"
-          ? 820
-          : action === "pass"
-            ? 520
-            : action === "flick"
-              ? 650
-              : 480;
+
+      let power = 55;
+
 
       if (
         player.power === "superkick" &&
-        player.powerUntil > now &&
-        action === "kick"
+        player.powerUntil > now
       ) {
-        power *= 1.7;
+        power = 100;
       }
 
-      if (action === "flick" || action === "lob") {
-        ball.vy +=
-          (player.team === 0 ? -1 : 1) * 140;
-      }
 
       ball.vx =
-        Math.cos(angle) * power +
-        player.facing * 100;
+        direction * power;
 
-      ball.vy += Math.sin(angle) * power;
+      ball.vy =
+        10 +
+        Math.random() * 5;
 
-      player.cooldown = now + 300;
+      ball.vz =
+        player.vz * 0.15;
+
+
+      player.actionCooldown =
+        now + 450;
     }
   }
 
-  else if (action === "tackle") {
-    player.tackleUntil = now + 260;
 
-    player.cooldown = now + 650;
+  /* PASS */
 
-    for (const target of players.values()) {
+  else if (type === "pass") {
+
+    if (
+      ball.owner === player.id ||
+      distance3D(player, ball) < 5
+    ) {
+
+      ball.owner = null;
+
+      const direction =
+        player.team === "blue"
+          ? 1
+          : -1;
+
+
+      ball.vx =
+        direction * 32;
+
+      ball.vy = 5;
+
+      ball.vz =
+        player.vz * 0.5;
+
+
+      player.actionCooldown =
+        now + 300;
+    }
+  }
+
+
+  /* TACKLE */
+
+  else if (type === "tackle") {
+
+    if (
+      player.actionCooldown >
+      now
+    ) {
+      return;
+    }
+
+
+    player.tackleUntil =
+      now + 400;
+
+
+    player.actionCooldown =
+      now + 900;
+
+
+    for (
+      const opponent of
+      players.values()
+    ) {
+
       if (
-        target.id !== player.id &&
-        target.team !== player.team &&
-        distance(player, target) < 85
+        opponent.id === player.id
       ) {
-        target.vx += player.facing * 380;
+        continue;
+      }
 
-        target.vy +=
-          (Math.random() - 0.5) * 300;
 
-        if (ball.owner === target.id) {
+      if (
+        opponent.team ===
+        player.team
+      ) {
+        continue;
+      }
+
+
+      if (
+        distance3D(
+          player,
+          opponent
+        ) < 5
+      ) {
+
+        if (
+          opponent.shieldUntil >
+          now
+        ) {
+          continue;
+        }
+
+
+        opponent.vx +=
+          player.team === "blue"
+            ? 20
+            : -20;
+
+
+        if (
+          ball.owner ===
+          opponent.id
+        ) {
           ball.owner = null;
+
+          ball.vx =
+            player.team === "blue"
+              ? 25
+              : -25;
         }
       }
     }
+  }
+
+
+  /* DASH */
+
+  else if (type === "dash") {
+
+    if (
+      player.power === "speed" &&
+      player.powerUntil > now
+    ) {
+
+      player.vx +=
+        player.team === "blue"
+          ? 35
+          : -35;
+
+    } else {
+
+      player.vx +=
+        player.team === "blue"
+          ? 20
+          : -20;
+    }
+
+
+    player.actionCooldown =
+      now + 1000;
   }
 }
 
-wss.on("connection", ws => {
-  const player = createPlayer(ws);
 
-  send(ws, {
-    type: "welcome",
+/* ------------------------------------------------ */
+/* BOT AI */
+/* ------------------------------------------------ */
 
-    id: player.id,
+function updateBot(player) {
 
-    world: {
-      W: WORLD_WIDTH,
-      H: WORLD_HEIGHT
-    },
-
-    controls: {
-      move: "WASD",
-      kick: "Mouse Left",
-      pass: "Mouse Right",
-      flick: "Q",
-      tackle: "E",
-      lob: "F",
-      request: "R",
-      dribble: "Space",
-      sprint: "Shift"
-    }
-  });
-
-  broadcast({
-    type: "notice",
-    text: `${player.name} joined the match.`
-  });
-
-  ws.on("message", raw => {
-    try {
-      const message = JSON.parse(raw);
-
-      if (message.type === "input") {
-        player.input = message.input || {};
-
-        if (
-          typeof message.name === "string" &&
-          message.name.trim()
-        ) {
-          player.name =
-            message.name
-              .trim()
-              .slice(0, 18);
-        }
-      }
-
-      if (message.type === "action") {
-        useAction(player, message.action);
-      }
-
-      if (message.type === "ping") {
-        send(ws, {
-          type: "pong",
-          t: message.t
-        });
-      }
-    }
-
-    catch (error) {
-      console.log("Invalid message.");
-    }
-  });
-
-  ws.on("close", () => {
-    players.delete(player.id);
-
-    broadcast({
-      type: "notice",
-      text: `${player.name} left the match.`
-    });
-  });
-});
-
-function updateBot(player, dt) {
   let target = ball;
 
+
   if (ball.owner) {
-    const owner = players.get(ball.owner);
+
+    const owner =
+      players.get(
+        ball.owner
+      );
 
     if (owner) {
       target = owner;
     }
   }
 
-  const dx = target.x - player.x;
-  const dy = target.y - player.y;
 
-  const length =
-    Math.hypot(dx, dy) || 1;
+  const dx =
+    target.x - player.x;
 
-  player.facing =
-    dx >= 0 ? 1 : -1;
+  const dz =
+    target.z - player.z;
 
-  player.input = {
-    up: dy / length,
-    down: -dy / length,
 
-    left: -dx / length,
-    right: dx / length,
+  player.input.forward =
+    Math.abs(dx) > 2 &&
+    (
+      player.team === "blue"
+        ? dx > 0
+        : dx < 0
+    );
 
-    sprint: true,
-    dribble: true
-  };
+
+  player.input.backward =
+    false;
+
+
+  player.input.left =
+    dz < -2;
+
+
+  player.input.right =
+    dz > 2;
+
+
+  player.input.sprint =
+    true;
+
 
   if (
-    distance(player, ball) < 85 &&
-    !ball.owner
+    distance3D(
+      player,
+      ball
+    ) < 5
   ) {
-    useAction(player, "kick");
+
+    action(
+      player,
+      "kick"
+    );
   }
 
+
   if (
-    ball.owner &&
-    ball.owner !== player.id
+    ball.owner
   ) {
-    const owner = players.get(ball.owner);
+
+    const owner =
+      players.get(
+        ball.owner
+      );
+
 
     if (
       owner &&
       owner.team !== player.team &&
-      distance(player, owner) < 75
+      distance3D(
+        player,
+        owner
+      ) < 5
     ) {
-      useAction(player, "tackle");
+
+      action(
+        player,
+        "tackle"
+      );
     }
   }
 }
 
+
+/* ------------------------------------------------ */
+/* PHYSICS */
+/* ------------------------------------------------ */
+
 function updatePhysics() {
-  const dt = TICK / 1000;
-  const now = Date.now();
 
-  /*
-    BOT MATCHMAKING
+  const now =
+    Date.now();
 
-    Once people are playing, bots fill empty
-    spaces so the match doesn't feel empty.
-  */
 
-  if (now - lastBotFill > 3500) {
-    lastBotFill = now;
+  /* BOT FILL */
 
-    const humanCount = humans().length;
+  if (
+    now - lastBotCheck >
+    3000
+  ) {
 
-    const desired =
-      Math.max(
-        MIN_HUMANS,
-        Math.min(MAX_PLAYERS, humanCount)
-      );
+    lastBotCheck = now;
 
-    while (players.size < desired) {
-      createPlayer(null, true);
-    }
+
+    const humansCount =
+      humans().length;
+
 
     if (
-      humanCount > 0 &&
-      players.size < MAX_PLAYERS
+      humansCount >= 1
     ) {
+
       while (
-        players.size < MAX_PLAYERS &&
-        humans().length < MAX_PLAYERS - 2
+        players.size <
+        MAX_PLAYERS
       ) {
-        createPlayer(null, true);
+
+        createPlayer(
+          null,
+          true
+        );
+      }
+    }
+
+    else {
+
+      while (
+        players.size <
+        MIN_PLAYERS_FOR_BOTS
+      ) {
+
+        createPlayer(
+          null,
+          true
+        );
       }
     }
   }
 
-  for (const player of players.values()) {
-    if (player.bot) {
-      updateBot(player, dt);
-    }
 
-    const input = player.input || {};
-
-    let ax =
-      (input.right ? 1 : 0) -
-      (input.left ? 1 : 0);
-
-    let ay =
-      (input.down ? 1 : 0) -
-      (input.up ? 1 : 0);
-
-    const length =
-      Math.hypot(ax, ay) || 1;
-
-    ax /= length;
-    ay /= length;
-
-    const sprint = !!input.sprint;
-
-    let speed =
-      sprint ? 420 : 300;
-
-    if (input.dribble) {
-      speed *= 0.72;
-    }
-
-    if (
-      player.power === "speed" &&
-      player.powerUntil > now
-    ) {
-      speed *= 1.45;
-    }
-
-    player.vx +=
-      ax * speed * 7 * dt;
-
-    player.vy +=
-      ay * speed * 7 * dt;
-
-    const maxSpeed = speed;
-
-    const currentSpeed =
-      Math.hypot(
-        player.vx,
-        player.vy
-      );
-
-    if (currentSpeed > maxSpeed) {
-      player.vx =
-        (player.vx / currentSpeed) *
-        maxSpeed;
-
-      player.vy =
-        (player.vy / currentSpeed) *
-        maxSpeed;
-    }
-
-    player.vx *= 0.84;
-    player.vy *= 0.84;
-
-    player.x = clamp(
-      player.x + player.vx * dt,
-      70,
-      WORLD_WIDTH - 70
-    );
-
-    player.y = clamp(
-      player.y + player.vy * dt,
-      70,
-      WORLD_HEIGHT - 70
-    );
-
-    if (Math.abs(player.vx) > 10) {
-      player.facing =
-        player.vx > 0 ? 1 : -1;
-    }
-
-    if (ball.owner === player.id) {
-      ball.x =
-        player.x +
-        player.facing * 48;
-
-      ball.y = player.y;
-    }
-
-    else if (
-      !ball.owner &&
-      distance(player, ball) < 62
-    ) {
-      ball.owner = player.id;
-      ball.lastTouch = player.id;
-    }
-
-    if (player.tackleUntil < now) {
-      player.tackleUntil = 0;
-    }
-  }
-
-  /*
-    BALL PHYSICS
-  */
-
-  if (!ball.owner) {
-    ball.x += ball.vx * dt;
-    ball.y += ball.vy * dt;
-
-    ball.vx *= 0.992;
-    ball.vy *= 0.992;
-
-    if (
-      ball.y < 35 ||
-      ball.y > WORLD_HEIGHT - 35
-    ) {
-      ball.vy *= -0.78;
-
-      ball.y = clamp(
-        ball.y,
-        35,
-        WORLD_HEIGHT - 35
-      );
-    }
-
-    /*
-      BLUE SCORES
-    */
-
-    if (
-      ball.x > WORLD_WIDTH &&
-      ball.y > GOAL_Y &&
-      ball.y < GOAL_Y + GOAL_HEIGHT
-    ) {
-      score[0]++;
-
-      roundClock = 180;
-
-      resetBall(0);
-    }
-
-    /*
-      RED SCORES
-    */
-
-    else if (
-      ball.x < 0 &&
-      ball.y > GOAL_Y &&
-      ball.y < GOAL_Y + GOAL_HEIGHT
-    ) {
-      score[1]++;
-
-      roundClock = 180;
-
-      resetBall(1);
-    }
-
-    else if (
-      ball.x < 35 ||
-      ball.x > WORLD_WIDTH - 35
-    ) {
-      ball.vx *= -0.78;
-
-      ball.x = clamp(
-        ball.x,
-        35,
-        WORLD_WIDTH - 35
-      );
-    }
-  }
-
-  /*
-    POWER-UPS
-  */
+  /* PLAYERS */
 
   for (
-    let i = powerups.length - 1;
+    const player of
+    players.values()
+  ) {
+
+    if (player.bot) {
+      updateBot(player);
+    }
+
+
+    const input =
+      player.input;
+
+
+    let moveX = 0;
+
+    let moveZ = 0;
+
+
+    if (input.forward) {
+      moveX += 1;
+    }
+
+
+    if (input.backward) {
+      moveX -= 1;
+    }
+
+
+    if (input.left) {
+      moveZ -= 1;
+    }
+
+
+    if (input.right) {
+      moveZ += 1;
+    }
+
+
+    const magnitude =
+      Math.hypot(
+        moveX,
+        moveZ
+      );
+
+
+    if (magnitude > 0) {
+
+      moveX /= magnitude;
+      moveZ /= magnitude;
+
+
+      let speed =
+        input.sprint
+          ? 20
+          : 13;
+
+
+      if (
+        input.dribble
+      ) {
+        speed *= 0.72;
+      }
+
+
+      if (
+        player.power === "speed" &&
+        player.powerUntil > now
+      ) {
+        speed *= 1.6;
+      }
+
+
+      player.vx =
+        moveX * speed;
+
+      player.vz =
+        moveZ * speed;
+
+
+      player.rotationY =
+        Math.atan2(
+          moveZ,
+          moveX
+        );
+    }
+
+    else {
+
+      player.vx *= 0.75;
+      player.vz *= 0.75;
+    }
+
+
+    player.x +=
+      player.vx * DT;
+
+
+    player.z +=
+      player.vz * DT;
+
+
+    player.x =
+      clamp(
+        player.x,
+        -58,
+        58
+      );
+
+
+    player.z =
+      clamp(
+        player.z,
+        -96,
+        96
+      );
+
+
+    /* BALL PICKUP */
+
+    if (
+      !ball.owner &&
+      distance3D(
+        player,
+        ball
+      ) < 4
+    ) {
+
+      ball.owner =
+        player.id;
+    }
+
+
+    /* BALL DRIBBLING */
+
+    if (
+      ball.owner ===
+      player.id
+    ) {
+
+      const direction =
+        player.team === "blue"
+          ? 1
+          : -1;
+
+
+      ball.x =
+        player.x +
+        direction * 2.8;
+
+
+      ball.y = 1.4;
+
+
+      ball.z =
+        player.z;
+    }
+
+
+    if (
+      player.powerUntil <
+      now
+    ) {
+
+      player.power = null;
+    }
+  }
+
+
+  /* BALL */
+
+  if (!ball.owner) {
+
+    ball.x +=
+      ball.vx * DT;
+
+    ball.y +=
+      ball.vy * DT;
+
+    ball.z +=
+      ball.vz * DT;
+
+
+    ball.vy -=
+      25 * DT;
+
+
+    ball.vx *=
+      0.993;
+
+    ball.vz *=
+      0.993;
+
+
+    if (
+      ball.y <
+      ball.radius
+    ) {
+
+      ball.y =
+        ball.radius;
+
+      ball.vy *=
+        -0.68;
+    }
+
+
+    if (
+      Math.abs(ball.z) >
+      98
+    ) {
+
+      ball.z =
+        clamp(
+          ball.z,
+          -98,
+          98
+        );
+
+      ball.vz *=
+        -0.7;
+    }
+
+
+    /* BLUE GOAL */
+
+    if (
+      ball.x >
+      FIELD_WIDTH / 2 + 3
+    ) {
+
+      if (
+        Math.abs(ball.z) <
+        18
+      ) {
+
+        score.blue++;
+
+        resetPositions();
+      }
+
+      else {
+
+        ball.x =
+          FIELD_WIDTH / 2 + 3;
+
+        ball.vx *= -0.7;
+      }
+    }
+
+
+    /* RED GOAL */
+
+    if (
+      ball.x <
+      -FIELD_WIDTH / 2 - 3
+    ) {
+
+      if (
+        Math.abs(ball.z) <
+        18
+      ) {
+
+        score.red++;
+
+        resetPositions();
+      }
+
+      else {
+
+        ball.x =
+          -FIELD_WIDTH / 2 - 3;
+
+        ball.vx *= -0.7;
+      }
+    }
+  }
+
+
+  /* POWERUPS */
+
+  for (
+    let i =
+      powerups.length - 1;
+
     i >= 0;
+
     i--
   ) {
-    for (const player of players.values()) {
-      if (
-        distance(player, powerups[i]) < 45
-      ) {
-        const powerup = powerups[i];
 
-        player.power = powerup.type;
+    const powerup =
+      powerups[i];
+
+
+    for (
+      const player of
+      players.values()
+    ) {
+
+      if (
+        distance3D(
+          player,
+          powerup
+        ) < 4
+      ) {
+
+        player.power =
+          powerup.type;
+
 
         player.powerUntil =
-          now + 9000;
+          now + 10000;
 
-        powerups.splice(i, 1);
+
+        if (
+          powerup.type ===
+          "shield"
+        ) {
+
+          player.shieldUntil =
+            now + 10000;
+        }
+
+
+        powerups.splice(
+          i,
+          1
+        );
+
 
         break;
       }
     }
   }
 
+
   if (
-    powerups.length < 3 &&
-    Math.random() < 0.004
+    powerups.length < 4 &&
+    Math.random() < 0.01
   ) {
+
     spawnPowerup();
   }
 
-  /*
-    MATCH TIMER
-  */
 
-  roundClock -= dt;
+  /* MATCH CLOCK */
 
-  if (roundClock <= 0) {
-    round++;
+  matchTime -= DT;
 
-    score = [0, 0];
 
-    roundClock = 180;
+  if (
+    matchTime <= 0
+  ) {
 
-    resetBall();
+    matchTime = 180;
+
+    score.blue = 0;
+    score.red = 0;
+
+    resetPositions();
   }
 }
 
-setInterval(() => {
-  updatePhysics();
 
-  const state = {
-    type: "state",
+/* ------------------------------------------------ */
+/* WEBSOCKET */
+/* ------------------------------------------------ */
 
-    world: {
-      W: WORLD_WIDTH,
-      H: WORLD_HEIGHT
-    },
+wss.on(
+  "connection",
+  ws => {
 
-    score,
+    const player =
+      createPlayer(ws);
 
-    round,
 
-    time: Math.max(
-      0,
-      Math.ceil(roundClock)
-    ),
+    send(ws, {
 
-    ball: {
-      x: ball.x,
-      y: ball.y,
-      vx: ball.vx,
-      vy: ball.vy,
-      owner: ball.owner
-    },
+      type: "welcome",
 
-    powerups,
-
-    players: [...players.values()].map(player => ({
       id: player.id,
 
-      name: player.name,
+      field: {
+        width: FIELD_WIDTH,
+        length: FIELD_LENGTH
+      }
 
-      bot: player.bot,
+    });
 
-      team: player.team,
 
-      x: player.x,
-      y: player.y,
+    broadcast({
+      type: "notice",
+      text:
+        `${player.name} joined the match.`
+    });
 
-      vx: player.vx,
-      vy: player.vy,
 
-      facing: player.facing,
+    ws.on(
+      "message",
+      raw => {
 
-      power: player.power,
+        try {
 
-      powerActive:
-        player.powerUntil > Date.now(),
+          const message =
+            JSON.parse(raw);
 
-      tackle:
-        !!player.tackleUntil
-    }))
-  };
 
-  broadcast(state);
-}, TICK);
+          if (
+            message.type ===
+            "input"
+          ) {
+
+            player.input =
+              message.input || {};
+
+
+            if (
+              typeof message.name ===
+              "string"
+            ) {
+
+              const name =
+                message.name
+                  .trim()
+                  .slice(0, 18);
+
+
+              if (name) {
+                player.name =
+                  name;
+              }
+            }
+          }
+
+
+          if (
+            message.type ===
+            "action"
+          ) {
+
+            action(
+              player,
+              message.action
+            );
+          }
+        }
+
+        catch {
+          /* Ignore bad packets */
+        }
+      }
+    );
+
+
+    ws.on(
+      "close",
+      () => {
+
+        players.delete(
+          player.id
+        );
+
+
+        broadcast({
+
+          type: "notice",
+
+          text:
+            `${player.name} left the match.`
+
+        });
+      }
+    );
+  }
+);
+
+
+/* ------------------------------------------------ */
+/* SERVER TICK */
+/* ------------------------------------------------ */
+
+setInterval(
+  () => {
+
+    updatePhysics();
+
+
+    const state = {
+
+      type: "state",
+
+      score,
+
+      time:
+        Math.max(
+          0,
+          Math.ceil(matchTime)
+        ),
+
+
+      ball: {
+        x: ball.x,
+        y: ball.y,
+        z: ball.z,
+        owner: ball.owner
+      },
+
+
+      powerups,
+
+
+      players:
+        [...players.values()]
+          .map(player => ({
+
+            id: player.id,
+
+            name: player.name,
+
+            bot: player.bot,
+
+            team: player.team,
+
+            x: player.x,
+
+            y: player.y,
+
+            z: player.z,
+
+            rotationY:
+              player.rotationY,
+
+            power:
+              player.power,
+
+            powerActive:
+              player.powerUntil >
+              Date.now(),
+
+            tackling:
+              player.tackleUntil >
+              Date.now(),
+
+            shield:
+              player.shieldUntil >
+              Date.now()
+
+          }))
+    };
+
+
+    broadcast(state);
+
+  },
+
+  1000 / TICK_RATE
+);
+
+
+/* ------------------------------------------------ */
+/* START */
+/* ------------------------------------------------ */
 
 server.listen(
   PORT,
   "0.0.0.0",
   () => {
+
     console.log(
-      `Illegal Soccer server running on port ${PORT}`
+      `3D Soccer server running on ${PORT}`
     );
+
   }
 );
