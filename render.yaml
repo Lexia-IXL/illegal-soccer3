@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: illegal-soccer-web
+    name: illegal-soccer-3d
     runtime: node
     buildCommand: npm install
     startCommand: npm start
