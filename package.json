@@ -1,8 +1,8 @@
 {
-  "name": "illegal-soccer-web",
-  "version": "1.0.0",
+  "name": "illegal-soccer-3d",
+  "version": "2.0.0",
   "private": true,
-  "description": "Original browser soccer game with real-time multiplayer and server bots.",
+  "description": "3D browser multiplayer soccer game with bots",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
