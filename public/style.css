@@ -1,0 +1,277 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+
+  width: 100%;
+  height: 100%;
+
+  overflow: hidden;
+
+  background: #07120d;
+
+  font-family:
+    Arial,
+    Helvetica,
+    sans-serif;
+}
+
+canvas {
+  display: block;
+
+  width: 100vw;
+  height: 100vh;
+}
+
+
+/* MAIN MENU */
+
+#menu {
+  position: fixed;
+
+  inset: 0;
+
+  display: grid;
+
+  place-items: center;
+
+  background:
+    radial-gradient(
+      circle,
+      #183f2a,
+      #050a08 70%
+    );
+
+  z-index: 5;
+}
+
+
+.card {
+  width: min(430px, 90vw);
+
+  padding: 38px;
+
+  border:
+    1px solid
+    rgba(255,255,255,0.17);
+
+  border-radius: 22px;
+
+  background:
+    rgba(12,23,17,0.94);
+
+  box-shadow:
+    0 20px 80px
+    rgba(0,0,0,0.55);
+
+  text-align: center;
+
+  color: white;
+}
+
+
+h1 {
+  font-size: 42px;
+
+  letter-spacing: 2px;
+
+  margin:
+    0 0 4px;
+}
+
+
+.sub {
+  opacity: 0.7;
+
+  margin:
+    0 0 25px;
+}
+
+
+input {
+  width: 100%;
+
+  padding: 14px;
+
+  border-radius: 10px;
+
+  border:
+    1px solid
+    rgba(255,255,255,0.2);
+
+  background:
+    rgba(0,0,0,0.4);
+
+  color: white;
+
+  font-size: 16px;
+
+  outline: none;
+}
+
+
+button {
+  width: 100%;
+
+  margin-top: 12px;
+
+  padding: 14px;
+
+  border: 0;
+
+  border-radius: 10px;
+
+  background: white;
+
+  color: #111;
+
+  font-weight: 800;
+
+  font-size: 17px;
+
+  cursor: pointer;
+}
+
+
+button:hover {
+  transform: scale(1.02);
+}
+
+
+.small {
+  font-size: 12px;
+
+  opacity: 0.55;
+
+  line-height: 1.5;
+}
+
+
+.hidden {
+  display: none !important;
+}
+
+
+/* GAME HUD */
+
+#hud {
+  position: fixed;
+
+  inset: 0;
+
+  pointer-events: none;
+
+  color: white;
+
+  text-shadow:
+    0 2px 4px
+    rgba(0,0,0,0.8);
+}
+
+
+#score {
+  position: absolute;
+
+  top: 18px;
+
+  left: 50%;
+
+  transform:
+    translateX(-50%);
+
+  font-size: 26px;
+
+  font-weight: 900;
+
+  letter-spacing: 1px;
+}
+
+
+#timer {
+  position: absolute;
+
+  top: 52px;
+
+  left: 50%;
+
+  transform:
+    translateX(-50%);
+
+  font-size: 16px;
+}
+
+
+#players {
+  position: absolute;
+
+  top: 18px;
+
+  left: 18px;
+
+  font-size: 14px;
+}
+
+
+#power {
+  position: absolute;
+
+  top: 42px;
+
+  left: 18px;
+
+  font-size: 14px;
+}
+
+
+#notice {
+  position: absolute;
+
+  top: 80px;
+
+  left: 50%;
+
+  transform:
+    translateX(-50%);
+
+  font-weight: 700;
+}
+
+
+#controls {
+  position: absolute;
+
+  bottom: 14px;
+
+  left: 50%;
+
+  transform:
+    translateX(-50%);
+
+  font-size: 12px;
+
+  opacity: 0.7;
+
+  white-space: nowrap;
+}
+
+
+@media (max-width: 800px) {
+
+  #controls {
+    white-space: normal;
+
+    width: 90%;
+
+    text-align: center;
+
+    line-height: 1.7;
+  }
+
+  h1 {
+    font-size: 32px;
+  }
+
+}
