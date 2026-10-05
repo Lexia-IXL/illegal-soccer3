@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+
+  <meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+  >
+
+  <title>Illegal Soccer</title>
+
+  <link
+    rel="stylesheet"
+    href="style.css"
+  >
+</head>
+
+<body>
+
+  <div id="menu">
+
+    <div class="card">
+
+      <h1>ILLEGAL SOCCER</h1>
+
+      <p class="sub">
+        Browser Multiplayer
+      </p>
+
+      <input
+        id="name"
+        maxlength="18"
+        placeholder="Your player name"
+      >
+
+      <button id="play">
+        PLAY
+      </button>
+
+      <p class="small">
+        Real players share the match.
+        Bots automatically fill open spaces.
+      </p>
+
+    </div>
+
+  </div>
+
+
+  <div id="hud" class="hidden">
+
+    <div id="score">
+      BLUE 0 — 0 RED
+    </div>
+
+    <div id="timer">
+      3:00
+    </div>
+
+    <div id="players">
+      Players: 0
+    </div>
+
+    <div id="power">
+      POWER: NONE
+    </div>
+
+    <div id="notice"></div>
+
+    <div id="controls">
+
+      <b>WASD</b> Move ·
+
+      <b>SHIFT</b> Sprint ·
+
+      <b>LMB</b> Kick ·
+
+      <b>RMB</b> Pass ·
+
+      <b>Q</b> Flick ·
+
+      <b>E</b> Tackle ·
+
+      <b>F</b> Lob ·
+
+      <b>SPACE</b> Dribble
+
+    </div>
+
+  </div>
+
+
+  <canvas id="game"></canvas>
+
+
+  <script src="game.js"></script>
+
+</body>
+
+</html>
