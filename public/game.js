@@ -1,230 +1,1113 @@
-const canvas =
-  document.getElementById("game");
-
-const ctx =
-  canvas.getContext("2d");
+import * as THREE from
+  "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js";
 
 
-let dpr =
-  Math.min(
-    devicePixelRatio || 1,
-    2
-  );
+/* ================================================= */
+/* VARIABLES */
+/* ================================================= */
+
+let scene;
+let camera;
+let renderer;
+
+let socket;
+
+let myId = null;
+
+let gameState = null;
+
+let clock =
+  new THREE.Clock();
 
 
-let me = null;
+const playerMeshes =
+  new Map();
 
-let state = null;
 
-let socket = null;
+const powerMeshes =
+  new Map();
+
+
+let ballMesh;
+
+let stadium;
+
+let cameraYaw = 0;
+
+let cameraPitch = 0.45;
 
 let keys = {};
 
-let noticeTimer = null;
+
+let mouseDown = false;
 
 
-function resize() {
+/* ================================================= */
+/* DOM */
+/* ================================================= */
 
-  canvas.width =
-    innerWidth * dpr;
+const menu =
+  document.getElementById(
+    "menu"
+  );
 
-  canvas.height =
-    innerHeight * dpr;
 
-  ctx.setTransform(
-    dpr,
+const loading =
+  document.getElementById(
+    "loading"
+  );
+
+
+const playerName =
+  document.getElementById(
+    "playerName"
+  );
+
+
+const playButton =
+  document.getElementById(
+    "playButton"
+  );
+
+
+/* ================================================= */
+/* THREE SETUP */
+/* ================================================= */
+
+function init3D() {
+
+  scene =
+    new THREE.Scene();
+
+
+  scene.background =
+    new THREE.Color(
+      0x07140d
+    );
+
+
+  scene.fog =
+    new THREE.Fog(
+      0x07140d,
+      100,
+      300
+    );
+
+
+  camera =
+    new THREE.PerspectiveCamera(
+      70,
+      innerWidth / innerHeight,
+      0.1,
+      500
+    );
+
+
+  renderer =
+    new THREE.WebGLRenderer({
+      antialias: true
+    });
+
+
+  renderer.setPixelRatio(
+    Math.min(
+      devicePixelRatio,
+      2
+    )
+  );
+
+
+  renderer.setSize(
+    innerWidth,
+    innerHeight
+  );
+
+
+  renderer.shadowMap.enabled =
+    true;
+
+
+  renderer.shadowMap.type =
+    THREE.PCFSoftShadowMap;
+
+
+  document.body.appendChild(
+    renderer.domElement
+  );
+
+
+  window.addEventListener(
+    "resize",
+    resize
+  );
+
+
+  createLighting();
+
+  createStadium();
+
+  createBall();
+
+
+  animate();
+}
+
+
+/* ================================================= */
+/* LIGHTING */
+/* ================================================= */
+
+function createLighting() {
+
+  const ambient =
+    new THREE.HemisphereLight(
+      0xffffff,
+      0x203020,
+      2
+    );
+
+
+  scene.add(
+    ambient
+  );
+
+
+  const sun =
+    new THREE.DirectionalLight(
+      0xffffff,
+      3
+    );
+
+
+  sun.position.set(
     0,
+    100,
+    40
+  );
+
+
+  sun.castShadow = true;
+
+
+  sun.shadow.mapSize.width =
+    2048;
+
+
+  sun.shadow.mapSize.height =
+    2048;
+
+
+  sun.shadow.camera.left =
+    -150;
+
+
+  sun.shadow.camera.right =
+    150;
+
+
+  sun.shadow.camera.top =
+    150;
+
+
+  sun.shadow.camera.bottom =
+    -150;
+
+
+  scene.add(
+    sun
+  );
+
+
+  const lights = [];
+
+
+  for (
+    let i = -1;
+    i <= 1;
+    i += 2
+  ) {
+
+    const light =
+      new THREE.PointLight(
+        0xffffff,
+        50,
+        180
+      );
+
+
+    light.position.set(
+      i * 75,
+      45,
+      0
+    );
+
+
+    scene.add(
+      light
+    );
+
+    lights.push(light);
+  }
+}
+
+
+/* ================================================= */
+/* STADIUM */
+/* ================================================= */
+
+function createStadium() {
+
+  stadium =
+    new THREE.Group();
+
+
+  scene.add(
+    stadium
+  );
+
+
+  /* FIELD */
+
+  const fieldGeometry =
+    new THREE.BoxGeometry(
+      120,
+      0.5,
+      200
+    );
+
+
+  const fieldMaterial =
+    new THREE.MeshStandardMaterial({
+      color: 0x26753c,
+      roughness: 0.9
+    });
+
+
+  const field =
+    new THREE.Mesh(
+      fieldGeometry,
+      fieldMaterial
+    );
+
+
+  field.receiveShadow =
+    true;
+
+
+  field.position.y =
+    -0.25;
+
+
+  stadium.add(
+    field
+  );
+
+
+  /* FIELD LINES */
+
+  createFieldLines();
+
+
+  /* GOALS */
+
+  createGoal(
+    -1
+  );
+
+  createGoal(
+    1
+  );
+
+
+  /* STANDS */
+
+  createStands();
+
+
+  /* LIGHT TOWERS */
+
+  createLightTowers();
+}
+
+
+/* ================================================= */
+/* FIELD LINES */
+/* ================================================= */
+
+function createFieldLines() {
+
+  const material =
+    new THREE.MeshBasicMaterial({
+      color: 0xffffff
+    });
+
+
+  const lineHeight =
+    0.04;
+
+
+  function line(
+    width,
+    height,
+    x,
+    z
+  ) {
+
+    const geometry =
+      new THREE.BoxGeometry(
+        width,
+        lineHeight,
+        height
+      );
+
+
+    const mesh =
+      new THREE.Mesh(
+        geometry,
+        material
+      );
+
+
+    mesh.position.set(
+      x,
+      0.03,
+      z
+    );
+
+
+    stadium.add(
+      mesh
+    );
+  }
+
+
+  /* SIDELINES */
+
+  line(
+    0.25,
+    200,
+    -60,
+    0
+  );
+
+
+  line(
+    0.25,
+    200,
+    60,
+    0
+  );
+
+
+  /* END LINES */
+
+  line(
+    120,
+    0.25,
     0,
-    dpr,
+    -100
+  );
+
+
+  line(
+    120,
+    0.25,
+    0,
+    100
+  );
+
+
+  /* CENTER LINE */
+
+  line(
+    120,
+    0.2,
     0,
     0
   );
-}
 
 
-addEventListener(
-  "resize",
-  resize
-);
+  /* CENTER CIRCLE */
 
-
-resize();
-
-
-function connect() {
-
-  const protocol =
-    location.protocol === "https:"
-      ? "wss"
-      : "ws";
-
-
-  socket =
-    new WebSocket(
-      `${protocol}://${location.host}/ws`
+  const circle =
+    new THREE.RingGeometry(
+      18,
+      18.3,
+      64
     );
 
 
-  socket.onopen = () => {
+  const circleMesh =
+    new THREE.Mesh(
+      circle,
+      material
+    );
 
-    const savedName =
-      localStorage.getItem(
-        "soccerName"
-      ) || "Player";
+
+  circleMesh.rotation.x =
+    -Math.PI / 2;
 
 
-    socket.send(
-      JSON.stringify({
-        type: "input",
+  circleMesh.position.y =
+    0.04;
 
-        name: savedName,
 
-        input: {}
+  stadium.add(
+    circleMesh
+  );
+
+
+  /* CENTER DOT */
+
+  const dot =
+    new THREE.Mesh(
+      new THREE.CircleGeometry(
+        0.7,
+        24
+      ),
+      material
+    );
+
+
+  dot.rotation.x =
+    -Math.PI / 2;
+
+
+  dot.position.y =
+    0.05;
+
+
+  stadium.add(
+    dot
+  );
+}
+
+
+/* ================================================= */
+/* GOALS */
+/* ================================================= */
+
+function createGoal(side) {
+
+  const group =
+    new THREE.Group();
+
+
+  const x =
+    side * 64;
+
+
+  group.position.x =
+    x;
+
+
+  const material =
+    new THREE.MeshStandardMaterial({
+      color: 0xffffff
+    });
+
+
+  const post1 =
+    new THREE.Mesh(
+      new THREE.CylinderGeometry(
+        0.5,
+        0.5,
+        12,
+        12
+      ),
+      material
+    );
+
+
+  post1.position.set(
+    0,
+    6,
+    -18
+  );
+
+
+  group.add(
+    post1
+  );
+
+
+  const post2 =
+    post1.clone();
+
+
+  post2.position.z =
+    18;
+
+
+  group.add(
+    post2
+  );
+
+
+  const crossbar =
+    new THREE.Mesh(
+      new THREE.CylinderGeometry(
+        0.5,
+        0.5,
+        36,
+        12
+      ),
+      material
+    );
+
+
+  crossbar.rotation.x =
+    Math.PI / 2;
+
+
+  crossbar.position.y =
+    12;
+
+
+  group.add(
+    crossbar
+  );
+
+
+  /* NET */
+
+  const netMaterial =
+    new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.35
+    });
+
+
+  const net =
+    new THREE.Mesh(
+      new THREE.BoxGeometry(
+        10,
+        12,
+        36
+      ),
+      netMaterial
+    );
+
+
+  net.position.x =
+    side * 5;
+
+
+  net.position.y =
+    6;
+
+
+  group.add(
+    net
+  );
+
+
+  stadium.add(
+    group
+  );
+}
+
+
+/* ================================================= */
+/* STANDS */
+/* ================================================= */
+
+function createStands() {
+
+  const material =
+    new THREE.MeshStandardMaterial({
+      color: 0x20252a
+    });
+
+
+  for (
+    let side = -1;
+    side <= 1;
+    side += 2
+  ) {
+
+    const stand =
+      new THREE.Mesh(
+        new THREE.BoxGeometry(
+          18,
+          18,
+          230
+        ),
+        material
+      );
+
+
+    stand.position.set(
+      side * 78,
+      9,
+      0
+    );
+
+
+    stand.castShadow =
+      true;
+
+
+    stand.receiveShadow =
+      true;
+
+
+    stadium.add(
+      stand
+    );
+
+
+    for (
+      let z = -100;
+      z <= 100;
+      z += 8
+    ) {
+
+      const seat =
+        new THREE.Mesh(
+          new THREE.BoxGeometry(
+            15,
+            1.5,
+            5
+          ),
+          new THREE.MeshStandardMaterial({
+            color:
+              Math.random() >
+              0.5
+                ? 0x333333
+                : 0x555555
+          })
+        );
+
+
+      seat.position.set(
+        side * 68,
+        19 +
+          Math.floor(
+            (z + 100) / 30
+          ) * 4,
+        z
+      );
+
+
+      stadium.add(
+        seat
+      );
+    }
+  }
+}
+
+
+/* ================================================= */
+/* LIGHT TOWERS */
+/* ================================================= */
+
+function createLightTowers() {
+
+  for (
+    let x = -55;
+    x <= 55;
+    x += 55
+  ) {
+
+    for (
+      let z of [-105, 105]
+    ) {
+
+      const pole =
+        new THREE.Mesh(
+          new THREE.CylinderGeometry(
+            0.8,
+            1,
+            45,
+            12
+          ),
+          new THREE.MeshStandardMaterial({
+            color: 0x444444
+          })
+        );
+
+
+      pole.position.set(
+        x,
+        22,
+        z
+      );
+
+
+      stadium.add(
+        pole
+      );
+
+
+      const light =
+        new THREE.PointLight(
+          0xffffff,
+          80,
+          120
+        );
+
+
+      light.position.set(
+        x,
+        45,
+        z
+      );
+
+
+      stadium.add(
+        light
+      );
+    }
+  }
+}
+
+
+/* ================================================= */
+/* BALL */
+/* ================================================= */
+
+function createBall() {
+
+  const geometry =
+    new THREE.SphereGeometry(
+      1.1,
+      24,
+      24
+    );
+
+
+  const material =
+    new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.4
+    });
+
+
+  ballMesh =
+    new THREE.Mesh(
+      geometry,
+      material
+    );
+
+
+  ballMesh.castShadow =
+    true;
+
+
+  scene.add(
+    ballMesh
+  );
+}
+
+
+/* ================================================= */
+/* PLAYER MODEL */
+/* ================================================= */
+
+function createPlayerMesh(
+  player
+) {
+
+  const group =
+    new THREE.Group();
+
+
+  const color =
+    player.team === "blue"
+      ? 0x319cff
+      : 0xff4757;
+
+
+  const body =
+    new THREE.Mesh(
+      new THREE.CapsuleGeometry(
+        1.15,
+        2.5,
+        6,
+        12
+      ),
+      new THREE.MeshStandardMaterial({
+        color
       })
     );
-  };
 
 
-  socket.onmessage = event => {
-
-    const message =
-      JSON.parse(event.data);
+  body.position.y =
+    2;
 
 
-    if (
-      message.type === "welcome"
-    ) {
-
-      me = message.id;
-
-      show("hud");
-    }
+  body.castShadow =
+    true;
 
 
-    if (
-      message.type === "state"
-    ) {
-
-      state = message;
-    }
-
-
-    if (
-      message.type === "notice"
-    ) {
-
-      notice(message.text);
-    }
-
-  };
-
-
-  socket.onclose = () => {
-
-    notice(
-      "Connection lost — reconnecting..."
-    );
-
-
-    setTimeout(
-      connect,
-      1500
-    );
-  };
-
-}
-
-
-function show(id) {
-
-  document
-    .querySelectorAll(
-      "#menu,#hud"
-    )
-    .forEach(element =>
-      element.classList.add(
-        "hidden"
-      )
-    );
-
-
-  document
-    .getElementById(id)
-    .classList.remove(
-      "hidden"
-    );
-}
-
-
-function notice(text) {
-
-  const element =
-    document.getElementById(
-      "notice"
-    );
-
-
-  element.textContent =
-    text;
-
-
-  clearTimeout(
-    noticeTimer
+  group.add(
+    body
   );
 
 
-  noticeTimer =
-    setTimeout(() => {
-
-      element.textContent =
-        "";
-
-    }, 2500);
-
-}
-
-
-/* PLAYER NAME */
-
-const nameInput =
-  document.getElementById(
-    "name"
-  );
-
-
-nameInput.value =
-  localStorage.getItem(
-    "soccerName"
-  ) || "";
-
-
-/* PLAY BUTTON */
-
-document
-  .getElementById("play")
-  .onclick = () => {
-
-    const name =
-      nameInput.value.trim();
-
-
-    localStorage.setItem(
-      "soccerName",
-      name || "Player"
+  const head =
+    new THREE.Mesh(
+      new THREE.SphereGeometry(
+        0.85,
+        16,
+        16
+      ),
+      new THREE.MeshStandardMaterial({
+        color: 0xf0b58a
+      })
     );
 
 
-    connect();
-  };
+  head.position.y =
+    4;
 
 
-/* KEYBOARD */
+  head.castShadow =
+    true;
 
-addEventListener(
+
+  group.add(
+    head
+  );
+
+
+  /* LEGS */
+
+  for (
+    let side of [-1, 1]
+  ) {
+
+    const leg =
+      new THREE.Mesh(
+        new THREE.BoxGeometry(
+          0.65,
+          2,
+          0.7
+        ),
+        new THREE.MeshStandardMaterial({
+          color: 0x111111
+        })
+      );
+
+
+    leg.position.set(
+      side * 0.55,
+      0.2,
+      0
+    );
+
+
+    leg.castShadow =
+      true;
+
+
+    group.add(
+      leg
+    );
+  }
+
+
+  /* NAME */
+
+  const nameCanvas =
+    document.createElement(
+      "canvas"
+    );
+
+
+  nameCanvas.width =
+    512;
+
+  nameCanvas.height =
+    128;
+
+
+  const nameContext =
+    nameCanvas.getContext(
+      "2d"
+    );
+
+
+  nameContext.clearRect(
+    0,
+    0,
+    512,
+    128
+  );
+
+
+  nameContext.fillStyle =
+    "white";
+
+
+  nameContext.font =
+    "bold 50px Arial";
+
+
+  nameContext.textAlign =
+    "center";
+
+
+  nameContext.fillText(
+    player.bot
+      ? "BOT"
+      : player.name,
+    256,
+    70
+  );
+
+
+  const texture =
+    new THREE.CanvasTexture(
+      nameCanvas
+    );
+
+
+  const nameMaterial =
+    new THREE.SpriteMaterial({
+      map: texture,
+      transparent: true
+    });
+
+
+  const label =
+    new THREE.Sprite(
+      nameMaterial
+    );
+
+
+  label.scale.set(
+    8,
+    2,
+    1
+  );
+
+
+  label.position.y =
+    6;
+
+
+  group.add(
+    label
+  );
+
+
+  scene.add(
+    group
+  );
+
+
+  return group;
+}
+
+
+/* ================================================= */
+/* POWERUP MODEL */
+/* ================================================= */
+
+function createPowerupMesh(
+  powerup
+) {
+
+  const group =
+    new THREE.Group();
+
+
+  let color =
+    0xffffff;
+
+
+  if (
+    powerup.type ===
+    "speed"
+  ) {
+
+    color =
+      0xffff00;
+
+  }
+
+
+  if (
+    powerup.type ===
+    "superkick"
+  ) {
+
+    color =
+      0xff5500;
+
+  }
+
+
+  if (
+    powerup.type ===
+    "shield"
+  ) {
+
+    color =
+      0x44aaff;
+
+  }
+
+
+  if (
+    powerup.type ===
+    "giantball"
+  ) {
+
+    color =
+      0xff44ff;
+
+  }
+
+
+  const mesh =
+    new THREE.Mesh(
+
+      new THREE.OctahedronGeometry(
+        1.5
+      ),
+
+      new THREE.MeshStandardMaterial({
+        color,
+        emissive: color,
+        emissiveIntensity: 0.35
+      })
+
+    );
+
+
+  mesh.position.y =
+    2;
+
+
+  group.add(
+    mesh
+  );
+
+
+  scene.add(
+    group
+  );
+
+
+  return group;
+}
+
+
+/* ================================================= */
+/* INPUT */
+/* ================================================= */
+
+window.addEventListener(
   "keydown",
   event => {
 
-    keys[event.code] = true;
+    keys[event.code] =
+      true;
 
 
     if (
@@ -234,7 +1117,9 @@ addEventListener(
         "ArrowDown",
         "ArrowLeft",
         "ArrowRight"
-      ].includes(event.code)
+      ].includes(
+        event.code
+      )
     ) {
 
       event.preventDefault();
@@ -242,62 +1127,80 @@ addEventListener(
 
 
     if (
-      !socket ||
-      socket.readyState !== 1
+      event.code ===
+      "KeyQ"
     ) {
 
-      return;
-    }
-
-
-    const actions = {
-
-      KeyQ: "flick",
-
-      KeyE: "tackle",
-
-      KeyF: "lob"
-
-    };
-
-
-    const action =
-      actions[event.code];
-
-
-    if (
-      action &&
-      !event.repeat
-    ) {
-
-      socket.send(
-        JSON.stringify({
-          type: "action",
-          action
-        })
+      sendAction(
+        "tackle"
       );
     }
 
+
+    if (
+      event.code ===
+      "KeyE"
+    ) {
+
+      sendAction(
+        "dash"
+      );
+    }
   }
 );
 
 
-addEventListener(
+window.addEventListener(
   "keyup",
   event => {
 
     keys[event.code] =
       false;
-
   }
 );
 
 
-/* MOUSE */
-
-canvas.addEventListener(
+window.addEventListener(
   "mousedown",
   event => {
+
+    if (
+      event.button === 0
+    ) {
+
+      sendAction(
+        "kick"
+      );
+    }
+
+
+    if (
+      event.button === 2
+    ) {
+
+      sendAction(
+        "pass"
+      );
+    }
+  }
+);
+
+
+window.addEventListener(
+  "contextmenu",
+  event => {
+
+    event.preventDefault();
+  }
+);
+
+
+/* ================================================= */
+/* SEND INPUT */
+/* ================================================= */
+
+setInterval(
+  () => {
 
     if (
       !socket ||
@@ -308,36 +1211,54 @@ canvas.addEventListener(
     }
 
 
-    const action =
-      event.button === 0
-        ? "kick"
-        : "pass";
-
-
     socket.send(
       JSON.stringify({
-        type: "action",
-        action
+
+        type: "input",
+
+        name:
+          playerName.value ||
+          "Player",
+
+        input: {
+
+          forward:
+            !!keys.KeyW,
+
+          backward:
+            !!keys.KeyS,
+
+          left:
+            !!keys.KeyA,
+
+          right:
+            !!keys.KeyD,
+
+          sprint:
+            !!keys.ShiftLeft ||
+            !!keys.ShiftRight,
+
+          dribble:
+            !!keys.Space
+
+        }
+
       })
     );
 
-  }
+  },
+
+  50
 );
 
 
-canvas.addEventListener(
-  "contextmenu",
-  event => {
-    event.preventDefault();
-  }
-);
+/* ================================================= */
+/* ACTION */
+/* ================================================= */
 
-
-/*
-  SEND PLAYER INPUT
-*/
-
-setInterval(() => {
+function sendAction(
+  action
+) {
 
   if (
     !socket ||
@@ -351,662 +1272,715 @@ setInterval(() => {
   socket.send(
     JSON.stringify({
 
-      type: "input",
+      type: "action",
 
-      name:
-        localStorage.getItem(
-          "soccerName"
-        ) || "Player",
-
-      input: {
-
-        up:
-          keys.KeyW ||
-          keys.ArrowUp,
-
-        down:
-          keys.KeyS ||
-          keys.ArrowDown,
-
-        left:
-          keys.KeyA ||
-          keys.ArrowLeft,
-
-        right:
-          keys.KeyD ||
-          keys.ArrowRight,
-
-        sprint:
-          keys.ShiftLeft ||
-          keys.ShiftRight,
-
-        dribble:
-          keys.Space
-
-      }
+      action
 
     })
   );
-
-}, 50);
-
-
-/*
-  WORLD → SCREEN
-*/
-
-function worldToScreen(
-  x,
-  y,
-  scale,
-  offsetX,
-  offsetY
-) {
-
-  return [
-
-    x * scale + offsetX,
-
-    y * scale + offsetY
-
-  ];
 }
 
 
-/*
-  DRAW GAME
-*/
+/* ================================================= */
+/* CONNECT */
+/* ================================================= */
 
-function draw() {
+function connect() {
 
-  requestAnimationFrame(
-    draw
-  );
-
-
-  if (!state) {
-
-    ctx.fillStyle =
-      "#07120d";
-
-    ctx.fillRect(
-      0,
-      0,
-      innerWidth,
-      innerHeight
-    );
-
-    return;
-  }
+  loading.style.display =
+    "flex";
 
 
-  const scale =
-    Math.min(
+  const protocol =
+    location.protocol ===
+    "https:"
+      ? "wss:"
+      : "ws:";
 
-      (innerWidth - 30) /
-        state.world.W,
 
-      (innerHeight - 120) /
-        state.world.H
-
+  socket =
+    new WebSocket(
+      `${protocol}//${location.host}/ws`
     );
 
 
-  const offsetX =
-    (innerWidth -
-      state.world.W * scale) /
-    2;
-
-
-  const offsetY =
-    (innerHeight -
-      state.world.H * scale) /
-    2 +
-    10;
-
-
-  ctx.fillStyle =
-    "#0b2516";
-
-
-  ctx.fillRect(
-    0,
-    0,
-    innerWidth,
-    innerHeight
-  );
-
-
-  /*
-    FIELD
-  */
-
-  ctx.fillStyle =
-    "#20703c";
-
-
-  ctx.fillRect(
-
-    offsetX,
-
-    offsetY,
-
-    state.world.W * scale,
-
-    state.world.H * scale
-
-  );
-
-
-  /*
-    FIELD BORDER
-  */
-
-  ctx.strokeStyle =
-    "#ffffffaa";
-
-  ctx.lineWidth = 3;
-
-
-  ctx.strokeRect(
-
-    offsetX,
-
-    offsetY,
-
-    state.world.W * scale,
-
-    state.world.H * scale
-
-  );
-
-
-  /*
-    CENTER LINE
-  */
-
-  ctx.beginPath();
-
-  ctx.moveTo(
-
-    offsetX +
-      state.world.W *
-      scale /
-      2,
-
-    offsetY
-
-  );
-
-  ctx.lineTo(
-
-    offsetX +
-      state.world.W *
-      scale /
-      2,
-
-    offsetY +
-      state.world.H *
-      scale
-
-  );
-
-  ctx.stroke();
-
-
-  /*
-    CENTER CIRCLE
-  */
-
-  ctx.beginPath();
-
-  ctx.arc(
-
-    offsetX +
-      state.world.W *
-      scale /
-      2,
-
-    offsetY +
-      state.world.H *
-      scale /
-      2,
-
-    125 * scale,
-
-    0,
-
-    Math.PI * 2
-
-  );
-
-  ctx.stroke();
-
-
-  /*
-    PENALTY BOXES
-  */
-
-  ctx.strokeRect(
-
-    offsetX,
-
-    offsetY +
-      (state.world.H / 2 - 170) *
-      scale,
-
-    120 * scale,
-
-    340 * scale
-
-  );
-
-
-  ctx.strokeRect(
-
-    offsetX +
-      (state.world.W - 120) *
-      scale,
-
-    offsetY +
-      (state.world.H / 2 - 170) *
-      scale,
-
-    120 * scale,
-
-    340 * scale
-
-  );
-
-
-  /*
-    GOALS
-  */
-
-  ctx.fillStyle =
-    "#dfe8ea";
-
-
-  ctx.fillRect(
-
-    offsetX - 18,
-
-    offsetY +
-      330 * scale,
-
-    18,
-
-    340 * scale
-
-  );
-
-
-  ctx.fillRect(
-
-    offsetX +
-      state.world.W * scale,
-
-    offsetY +
-      330 * scale,
-
-    18,
-
-    340 * scale
-
-  );
-
-
-  /*
-    POWERUPS
-  */
-
-  for (
-    const powerup of
-    state.powerups
-  ) {
-
-    const [
-      x,
-      y
-    ] =
-      worldToScreen(
-        powerup.x,
-        powerup.y,
-        scale,
-        offsetX,
-        offsetY
-      );
-
-
-    ctx.fillStyle =
-      "#ffffff";
-
-
-    ctx.beginPath();
-
-    ctx.arc(
-      x,
-      y,
-      18,
-      0,
-      Math.PI * 2
-    );
-
-    ctx.fill();
-
-
-    const labels = {
-
-      speed: "⚡",
-
-      superkick: "★",
-
-      giantball: "●",
-
-      shield: "◆"
+  socket.onopen =
+    () => {
+
+      loading.style.display =
+        "none";
 
     };
 
 
-    ctx.fillStyle =
-      "#111";
+  socket.onmessage =
+    event => {
+
+      const message =
+        JSON.parse(
+          event.data
+        );
 
 
-    ctx.font =
-      "bold 17px Arial";
+      if (
+        message.type ===
+        "welcome"
+      ) {
+
+        myId =
+          message.id;
 
 
-    ctx.textAlign =
-      "center";
+        menu.style.display =
+          "none";
+
+      }
 
 
-    ctx.textBaseline =
-      "middle";
+      if (
+        message.type ===
+        "state"
+      ) {
+
+        gameState =
+          message;
+
+        updateWorld();
+      }
 
 
-    ctx.fillText(
+      if (
+        message.type ===
+        "notice"
+      ) {
 
-      labels[powerup.type] ||
-        "?",
+        showNotice(
+          message.text
+        );
+      }
 
-      x,
+    };
 
-      y
 
-    );
+  socket.onclose =
+    () => {
 
+      loading.style.display =
+        "flex";
+
+      loading.textContent =
+        "CONNECTION LOST — RECONNECTING...";
+
+
+      setTimeout(
+        connect,
+        1500
+      );
+    };
+}
+
+
+/* ================================================= */
+/* UPDATE WORLD */
+/* ================================================= */
+
+function updateWorld() {
+
+  if (!gameState) {
+    return;
   }
 
 
-  /*
-    PLAYERS
-  */
+  updatePlayers();
+
+  updateBall();
+
+  updatePowerups();
+
+  updateHUD();
+}
+
+
+/* ================================================= */
+/* PLAYERS */
+/* ================================================= */
+
+function updatePlayers() {
+
+  const activeIds =
+    new Set();
+
 
   for (
     const player of
-    state.players
+    gameState.players
   ) {
 
+    activeIds.add(
+      player.id
+    );
+
+
+    let mesh =
+      playerMeshes.get(
+        player.id
+      );
+
+
+    if (!mesh) {
+
+      mesh =
+        createPlayerMesh(
+          player
+        );
+
+
+      playerMeshes.set(
+        player.id,
+        mesh
+      );
+    }
+
+
+    mesh.position.set(
+      player.x,
+      player.y,
+      player.z
+    );
+
+
+    mesh.rotation.y =
+      player.rotationY;
+
+
+    /* TACKLE EFFECT */
+
+    if (
+      player.tackling
+    ) {
+
+      mesh.scale.set(
+        1.25,
+        0.65,
+        1.25
+      );
+
+    }
+
+    else {
+
+      mesh.scale.set(
+        1,
+        1,
+        1
+      );
+    }
+
+
+    /* SHIELD */
+
+    let shield =
+      mesh.userData.shield;
+
+
+    if (
+      player.shield
+    ) {
+
+      if (!shield) {
+
+        shield =
+          new THREE.Mesh(
+
+            new THREE.SphereGeometry(
+              3.3,
+              24,
+              24
+            ),
+
+            new THREE.MeshBasicMaterial({
+
+              color: 0x44aaff,
+
+              transparent: true,
+
+              opacity: 0.22,
+
+              wireframe: true
+
+            })
+
+          );
+
+
+        mesh.add(
+          shield
+        );
+
+
+        mesh.userData.shield =
+          shield;
+      }
+
+    }
+
+    else if (shield) {
+
+      mesh.remove(
+        shield
+      );
+
+      mesh.userData.shield =
+        null;
+    }
+  }
+
+
+  for (
     const [
-      x,
-      y
-    ] =
-      worldToScreen(
-
-        player.x,
-
-        player.y,
-
-        scale,
-
-        offsetX,
-
-        offsetY
-
-      );
-
-
-    ctx.save();
-
-
-    ctx.translate(
-      x,
-      y
-    );
-
-
-    /*
-      TEAM COLOR
-    */
-
-    ctx.fillStyle =
-      player.team === 0
-        ? "#42a5ff"
-        : "#ff4d5d";
-
-
-    ctx.beginPath();
-
-    ctx.arc(
-      0,
-      0,
-      24,
-      0,
-      Math.PI * 2
-    );
-
-    ctx.fill();
-
-
-    /*
-      YOUR PLAYER
-    */
+      id,
+      mesh
+    ] of playerMeshes
+  ) {
 
     if (
-      player.id === me
+      !activeIds.has(id)
     ) {
 
-      ctx.strokeStyle =
-        "#ffffff";
-
-      ctx.lineWidth = 4;
-
-
-      ctx.beginPath();
-
-      ctx.arc(
-        0,
-        0,
-        29,
-        0,
-        Math.PI * 2
+      scene.remove(
+        mesh
       );
 
-      ctx.stroke();
+      playerMeshes.delete(
+        id
+      );
+    }
+  }
+}
 
+
+/* ================================================= */
+/* BALL */
+/* ================================================= */
+
+function updateBall() {
+
+  if (!gameState) {
+    return;
+  }
+
+
+  ballMesh.position.set(
+
+    gameState.ball.x,
+
+    gameState.ball.y,
+
+    gameState.ball.z
+
+  );
+
+
+  const owner =
+    gameState.ball.owner;
+
+
+  if (owner) {
+
+    ballMesh.scale.set(
+      0.9,
+      0.9,
+      0.9
+    );
+
+  }
+
+  else {
+
+    ballMesh.scale.set(
+      1,
+      1,
+      1
+    );
+  }
+}
+
+
+/* ================================================= */
+/* POWERUPS */
+/* ================================================= */
+
+function updatePowerups() {
+
+  const active =
+    new Set();
+
+
+  for (
+    const powerup of
+    gameState.powerups
+  ) {
+
+    active.add(
+      powerup.id
+    );
+
+
+    let mesh =
+      powerMeshes.get(
+        powerup.id
+      );
+
+
+    if (!mesh) {
+
+      mesh =
+        createPowerupMesh(
+          powerup
+        );
+
+
+      powerMeshes.set(
+        powerup.id,
+        mesh
+      );
     }
 
 
-    /*
-      POWER ACTIVE
-    */
+    mesh.position.set(
 
-    if (
-      player.powerActive
-    ) {
+      powerup.x,
 
-      ctx.strokeStyle =
-        "#ffe66d";
+      powerup.y,
 
-      ctx.lineWidth = 4;
-
-
-      ctx.beginPath();
-
-      ctx.arc(
-        0,
-        0,
-        34,
-        0,
-        Math.PI * 2
-      );
-
-      ctx.stroke();
-
-    }
-
-
-    /*
-      PLAYER NAME
-    */
-
-    ctx.fillStyle =
-      "#ffffff";
-
-    ctx.font =
-      "bold 12px Arial";
-
-    ctx.textAlign =
-      "center";
-
-
-    ctx.fillText(
-
-      player.bot
-        ? "BOT"
-        : player.name,
-
-      0,
-
-      -38
+      powerup.z
 
     );
 
 
-    ctx.restore();
+    mesh.rotation.y +=
+      0.04;
 
   }
 
 
-  /*
-    BALL
-  */
+  for (
+    const [
+      id,
+      mesh
+    ] of powerMeshes
+  ) {
 
-  const [
-    ballX,
-    ballY
-  ] =
-    worldToScreen(
+    if (
+      !active.has(id)
+    ) {
 
-      state.ball.x,
+      scene.remove(
+        mesh
+      );
 
-      state.ball.y,
+      powerMeshes.delete(
+        id
+      );
+    }
+  }
+}
 
-      scale,
 
-      offsetX,
+/* ================================================= */
+/* CAMERA */
+/* ================================================= */
 
-      offsetY
+function updateCamera() {
+
+  if (!gameState) {
+    return;
+  }
+
+
+  const player =
+    gameState.players.find(
+      p =>
+        p.id === myId
+    );
+
+
+  if (!player) {
+    return;
+  }
+
+
+  const target =
+    new THREE.Vector3(
+      player.x,
+      3,
+      player.z
+    );
+
+
+  const distance =
+    15;
+
+
+  const offset =
+    new THREE.Vector3(
+
+      -Math.cos(
+        player.rotationY
+      ) * distance,
+
+      8,
+
+      -Math.sin(
+        player.rotationY
+      ) * distance
 
     );
 
 
-  ctx.fillStyle =
-    "#ffffff";
+  const desired =
+    target.clone()
+      .add(offset);
 
 
-  ctx.beginPath();
-
-  ctx.arc(
-    ballX,
-    ballY,
-    11,
-    0,
-    Math.PI * 2
+  camera.position.lerp(
+    desired,
+    0.12
   );
 
-  ctx.fill();
+
+  camera.lookAt(
+    target
+  );
+}
 
 
-  ctx.strokeStyle =
-    "#111";
+/* ================================================= */
+/* HUD */
+/* ================================================= */
 
-  ctx.lineWidth = 2;
+function updateHUD() {
 
-  ctx.stroke();
+  document.getElementById(
+    "blueScore"
+  ).textContent =
+    gameState.score.blue;
 
 
-  /*
-    HUD
-  */
-
-  document
-    .getElementById("score")
-    .textContent =
-      `BLUE ${state.score[0]} — ${state.score[1]} RED`;
+  document.getElementById(
+    "redScore"
+  ).textContent =
+    gameState.score.red;
 
 
   const minutes =
     Math.floor(
-      state.time / 60
+      gameState.time / 60
     );
 
 
   const seconds =
     String(
-      state.time % 60
+      gameState.time % 60
     ).padStart(
       2,
       "0"
     );
 
 
-  document
-    .getElementById("timer")
-    .textContent =
-      `${minutes}:${seconds}`;
+  document.getElementById(
+    "matchTime"
+  ).textContent =
+    `${minutes}:${seconds}`;
 
 
-  const humanCount =
-    state.players
-      .filter(player =>
-        !player.bot
+  const humans =
+    gameState.players
+      .filter(
+        p => !p.bot
       ).length;
 
 
   const botCount =
-    state.players
-      .filter(player =>
-        player.bot
+    gameState.players
+      .filter(
+        p => p.bot
       ).length;
 
 
-  document
-    .getElementById("players")
-    .textContent =
-      `Players: ${humanCount} · Bots: ${botCount}`;
+  document.getElementById(
+    "playerCount"
+  ).textContent =
+    `PLAYERS: ${humans} · BOTS: ${botCount}`;
 
 
-  const myPlayer =
-    state.players.find(
-      player =>
-        player.id === me
+  const me =
+    gameState.players.find(
+      p =>
+        p.id === myId
     );
 
 
-  document
-    .getElementById("power")
-    .textContent =
-      `POWER: ${
-        myPlayer?.powerActive
-          ? (
-              myPlayer.power ||
-              ""
-            ).toUpperCase()
-          : "NONE"
-      }`;
-
+  document.getElementById(
+    "powerDisplay"
+  ).textContent =
+    `POWER: ${
+      me &&
+      me.powerActive
+        ? me.power.toUpperCase()
+        : "NONE"
+    }`;
 }
 
 
-draw();
+/* ================================================= */
+/* NOTICE */
+/* ================================================= */
+
+let noticeTimeout;
+
+
+function showNotice(
+  message
+) {
+
+  const element =
+    document.getElementById(
+      "notice"
+    );
+
+
+  element.textContent =
+    message;
+
+
+  clearTimeout(
+    noticeTimeout
+  );
+
+
+  noticeTimeout =
+    setTimeout(
+      () => {
+
+        element.textContent =
+          "";
+
+      },
+
+      2500
+    );
+}
+
+
+/* ================================================= */
+/* RESIZE */
+/* ================================================= */
+
+function resize() {
+
+  if (!camera || !renderer) {
+    return;
+  }
+
+
+  camera.aspect =
+    innerWidth /
+    innerHeight;
+
+
+  camera.updateProjectionMatrix();
+
+
+  renderer.setSize(
+    innerWidth,
+    innerHeight
+  );
+}
+
+
+/* ================================================= */
+/* GAME LOOP */
+/* ================================================= */
+
+function animate() {
+
+  requestAnimationFrame(
+    animate
+  );
+
+
+  const elapsed =
+    clock.getElapsedTime();
+
+
+  /* POWERUP ANIMATION */
+
+  for (
+    const mesh of
+    powerMeshes.values()
+  ) {
+
+    mesh.children[0].rotation.y =
+      elapsed * 2;
+
+
+    mesh.children[0].position.y =
+      2 +
+      Math.sin(
+        elapsed * 3
+      ) *
+      0.35;
+  }
+
+
+  updateCamera();
+
+
+  renderer.render(
+    scene,
+    camera
+  );
+}
+
+
+/* ================================================= */
+/* PLAY */
+/* ================================================= */
+
+playButton.addEventListener(
+  "click",
+  () => {
+
+    if (
+      !playerName.value.trim()
+    ) {
+
+      playerName.value =
+        "Player";
+    }
+
+
+    init3D();
+
+    connect();
+
+  }
+);
+
+
+/* ENTER TO PLAY */
+
+playerName.addEventListener(
+  "keydown",
+  event => {
+
+    if (
+      event.key ===
+      "Enter"
+    ) {
+
+      playButton.click();
+    }
+  }
+);
